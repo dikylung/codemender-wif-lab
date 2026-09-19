@@ -44,60 +44,129 @@ function isPrivateIPv6(ip) {
     return false;
 }
 
-function isForbiddenTarget(target) {
-    if (!target) return true;
-    let urlStr = '';
-    if (typeof target === 'string') {
-        urlStr = target;
-    } else if (typeof target === 'object') {
-        if (typeof target.url === 'string') {
-            urlStr = target.url;
-        } else if (typeof target.href === 'string') {
-            urlStr = target.href;
-        } else if (target.hostname || target.host) {
-            const proto = target.protocol || 'http:';
-            const host = target.host || (target.hostname + (target.port ? `:${target.port}` : ''));
-            const path = target.path || target.pathname || '/';
-            urlStr = `${proto}//${host}${path}`;
+function isForbiddenHost(host) {
+    if (!host || typeof host !== 'string') return true;
+    let cleanHost = host.trim().toLowerCase();
+    if (cleanHost.includes('internal-network')) return true;
+
+    if (cleanHost.startsWith('[')) {
+        const match = cleanHost.match(/^\[([^\]]+)\](?::\d+)?$/);
+        if (match) {
+            cleanHost = match[1];
+        } else {
+            return true;
+        }
+    } else {
+        if (net.isIP(cleanHost) !== 6 && cleanHost.includes(':')) {
+            cleanHost = cleanHost.split(':')[0];
         }
     }
-    if (!urlStr) return true;
-    if (String(urlStr).includes('internal-network')) return true;
-    if (typeof target === 'object' && target && String(target.url || '').includes('internal-network')) return true;
 
-    let parsed;
-    try {
-        parsed = new URL(urlStr);
-    } catch {
-        return true;
-    }
-
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return true;
-    }
-
-    const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    if (!host) return true;
+    if (!cleanHost) return true;
 
     if (
-        host === 'localhost' ||
-        host.endsWith('.localhost') ||
-        host.endsWith('.local') ||
-        host.endsWith('.internal') ||
-        host.includes('internal-network')
+        cleanHost === 'localhost' ||
+        cleanHost.endsWith('.localhost') ||
+        cleanHost.endsWith('.local') ||
+        cleanHost.endsWith('.internal') ||
+        cleanHost.includes('internal-network')
     ) {
         return true;
     }
 
-    const ipVersion = net.isIP(host);
+    const ipVersion = net.isIP(cleanHost);
     if (ipVersion === 4) {
-        return isPrivateIPv4(host);
+        return isPrivateIPv4(cleanHost);
     }
     if (ipVersion === 6) {
-        return isPrivateIPv6(host);
+        return isPrivateIPv6(cleanHost);
     }
 
     return false;
+}
+
+function isForbiddenTarget(target) {
+    if (!target) return true;
+
+    if (typeof target === 'string') {
+        if (target.includes('internal-network')) return true;
+        let parsed;
+        try {
+            parsed = new URL(target);
+        } catch {
+            return true;
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return true;
+        }
+        return isForbiddenHost(parsed.hostname);
+    }
+
+    if (typeof target === 'object') {
+        if (target instanceof URL) {
+            if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+                return true;
+            }
+            if (target.href.includes('internal-network')) return true;
+            return isForbiddenHost(target.hostname);
+        }
+
+        if (target.socketPath) return true;
+
+        if (target.protocol && target.protocol !== 'http:' && target.protocol !== 'https:' && target.protocol !== 'http' && target.protocol !== 'https') {
+            return true;
+        }
+
+        let hasHostOrUrl = false;
+
+        if (typeof target.url === 'string') {
+            hasHostOrUrl = true;
+            if (target.url.includes('internal-network')) return true;
+            let parsed;
+            try {
+                parsed = new URL(target.url);
+            } catch {
+                return true;
+            }
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return true;
+            }
+            if (isForbiddenHost(parsed.hostname)) return true;
+        }
+
+        if (typeof target.href === 'string') {
+            hasHostOrUrl = true;
+            if (target.href.includes('internal-network')) return true;
+            let parsed;
+            try {
+                parsed = new URL(target.href);
+            } catch {
+                return true;
+            }
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                return true;
+            }
+            if (isForbiddenHost(parsed.hostname)) return true;
+        }
+
+        if (typeof target.hostname === 'string') {
+            hasHostOrUrl = true;
+            if (isForbiddenHost(target.hostname)) return true;
+        }
+
+        if (typeof target.host === 'string') {
+            hasHostOrUrl = true;
+            if (isForbiddenHost(target.host)) return true;
+        }
+
+        if (!hasHostOrUrl) {
+            return true;
+        }
+
+        return false;
+    }
+
+    return true;
 }
 
 exports.search = (q) => productRepo.filterProducts(q);
@@ -106,7 +175,8 @@ exports.fetchRemoteAsset = (target, cb) => {
     if (isForbiddenTarget(target)) {
         return cb(new Error("Forbidden access rule triggered."));
     }
-    http.get(target, (proxyRes) => {
+    const reqTarget = (typeof target === 'object' && !(target instanceof URL) && typeof target.url === 'string' && !target.hostname && !target.host) ? target.url : target;
+    http.get(reqTarget, (proxyRes) => {
         let body = '';
         proxyRes.on('data', chunk => body += chunk);
         proxyRes.on('end', () => cb(null, body.substring(0, 50)));
