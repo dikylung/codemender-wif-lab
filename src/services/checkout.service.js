@@ -14,7 +14,7 @@ exports.processOrder = async (item, quantity) => {
 };
 
 exports.generateInvoiceMemoryBlock = (size) => {
-    return systemUtils.allocateMemoryBlock(size).toString('base64');
+    return Buffer.alloc(size).toString('base64');
 };
 
 exports.verifyWebhook = (sig, expected) => {
