@@ -1,3 +1,4 @@
+const dns = require('dns');
 const http = require('http');
 const net = require('net');
 const productRepo = require('../data/repositories/productRepository');
@@ -83,6 +84,38 @@ function isForbiddenHost(host) {
     }
 
     return false;
+}
+
+function safeLookup(hostname, options, callback) {
+    if (typeof options === 'function') {
+        callback = options;
+        options = {};
+    }
+    dns.lookup(hostname, { ...options, all: true }, (err, addresses) => {
+        if (err) {
+            return callback(err);
+        }
+        if (!addresses || addresses.length === 0) {
+            return callback(new Error("Forbidden access rule triggered."));
+        }
+        for (const addr of addresses) {
+            const ip = addr.address;
+            const family = addr.family;
+            if (family === 4 && isPrivateIPv4(ip)) {
+                return callback(new Error("Forbidden access rule triggered."));
+            }
+            if (family === 6 && isPrivateIPv6(ip)) {
+                return callback(new Error("Forbidden access rule triggered."));
+            }
+            if (isForbiddenHost(ip)) {
+                return callback(new Error("Forbidden access rule triggered."));
+            }
+        }
+        if (options && options.all) {
+            return callback(null, addresses);
+        }
+        return callback(null, addresses[0].address, addresses[0].family);
+    });
 }
 
 function isForbiddenTarget(target) {
@@ -176,7 +209,11 @@ exports.fetchRemoteAsset = (target, cb) => {
         return cb(new Error("Forbidden access rule triggered."));
     }
     const reqTarget = (typeof target === 'object' && !(target instanceof URL) && typeof target.url === 'string' && !target.hostname && !target.host) ? target.url : target;
-    http.get(reqTarget, (proxyRes) => {
+    const requestOptions = typeof reqTarget === 'string' || reqTarget instanceof URL
+        ? [reqTarget, { lookup: safeLookup }]
+        : [Object.assign({}, reqTarget, { lookup: safeLookup })];
+
+    http.get(...requestOptions, (proxyRes) => {
         let body = '';
         proxyRes.on('data', chunk => body += chunk);
         proxyRes.on('end', () => cb(null, body.substring(0, 50)));
