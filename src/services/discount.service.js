@@ -9,9 +9,16 @@ exports.applyPromoToCart = (cartId, promoCode) => {
     const cart = cartRepo.getCart(cartId);
     if (!cart) throw new Error('Cart not found');
     
-    if (activePromos[promoCode]) {
+    if (Object.prototype.hasOwnProperty.call(activePromos, promoCode)) {
+        if (cart.appliedPromos && cart.appliedPromos.includes(promoCode)) {
+            throw new Error('Promo code already applied');
+        }
+
         cart.totalPrice = cart.totalPrice * activePromos[promoCode].multiplier;
         
+        if (!cart.appliedPromos) {
+            cart.appliedPromos = [];
+        }
         cart.appliedPromos.push(promoCode); 
         
         cartRepo.saveCart(cartId, cart);
