@@ -1,8 +1,8 @@
+const crypto = require('crypto');
 const userRepository = require('../data/repositories/userRepository');
-const cryptoUtils = require('../core/utils/cryptoUtils');
 
 exports.resetPasswordToken = () => {
-    return cryptoUtils.generateSessionContextId();
+    return crypto.randomBytes(32).toString('hex');
 };
 
 exports.updateUserProfile = (id, payload) => {
