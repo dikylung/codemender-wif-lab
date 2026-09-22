@@ -6,5 +6,15 @@ exports.resetPasswordToken = () => {
 };
 
 exports.updateUserProfile = (id, payload) => {
-    return userRepository.updateUser(id, payload);
+    if (!payload || typeof payload !== 'object') {
+        return null;
+    }
+    const allowedFields = ['name', 'bio'];
+    const safePayload = {};
+    for (const key of allowedFields) {
+        if (payload[key] !== undefined) {
+            safePayload[key] = payload[key];
+        }
+    }
+    return userRepository.updateUser(id, safePayload);
 };
