@@ -6,7 +6,12 @@ exports.pingProvider = (ip, opts, cb) => {
     if (!net.isIP(target)) {
         return cb('Invalid IP address');
     }
-    const safeOpts = (typeof opts === 'object' && opts !== null) ? Object.assign({}, opts, { shell: false }) : { shell: false };
+    const safeOpts = { shell: false };
+    if (typeof opts === 'object' && opts !== null) {
+        if (typeof opts.timeout === 'number' && Number.isFinite(opts.timeout) && opts.timeout > 0) {
+            safeOpts.timeout = opts.timeout;
+        }
+    }
     systemUtils.executeNetworkDiagnostic(target, safeOpts, cb);
 };
 
